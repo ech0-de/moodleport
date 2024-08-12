@@ -1,0 +1,17 @@
+services:
+  app:
+    image: nginx:alpine
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.moodle.loadbalancer.server.port=80"
+      - "traefik.http.routers.moodle.rule=Host(`moodleport.ech0.de`)"
+      - "traefik.http.routers.moodle.entrypoints=websecure"
+      - "traefik.http.routers.moodle.tls.certresolver=myresolver"
+      - "traefik.http.routers.moodle.middlewares=moodlecors@docker"
+      - "traefik.http.middlewares.moodlecors.headers.accesscontrolallowmethods=GET,OPTIONS"
+      - "traefik.http.middlewares.moodlecors.headers.accesscontrolalloworiginlist=*"
+      - "traefik.http.middlewares.moodlecors.headers.accesscontrolallowheaders=*"
+      - "traefik.http.middlewares.moodlecors.headers.accesscontrolmaxage=100"

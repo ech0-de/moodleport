@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/moodleport.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>moodleport</title>
+
+    <meta name="author" content="ech0" />
+    <meta name="keywords" content="moodle, academia" />
+    <meta name="description" content="A tool that allows you to download a local backup of a Moodle course." />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="moodleport - Moodle Exporter" />
+    <meta property="og:description" content="Nifty little tool that allows you to download a local backup of a Moodle course." />
+    <meta property="og:image" content="https://moodleport.ech0.de/social.png" />
+    <meta property="og:url" content="https://moodleport.ech0.de/" />
+
+    <link rel="stylesheet" href="/water.css">
+    <style type="text/css">
+        body { padding: 8px 16px; }
+        .center { text-align: center; }
+        blockquote { font-style: normal; }
+        figure { margin: 2em 0em; padding: 0; }
+        figure img { max-width: calc(100% - 4em); margin-inline: 1em; border: 1em solid white; outline: 2px solid var(--selection); }
+        .large { font-size: 100pt; }
+        footer { font-size: 70%; display: flex; justify-content: center; gap: 2em; }
+    </style>
+  </head>
+
+  <body>
+    <div class="center">
+      <img src="/moodleport.svg" alt="" />
+      <h1>✨ moodleport ✨</h1>
+
+      <b>⚠ this project is still work in progress, use with caution! 👷‍♀️</b>
+    </div>
+
+    <blockquote>
+      <p>
+        This nifty tool allows you to download a local backup of a moodle course.
+      </p>
+
+      <p>
+        If something is not working or a feature is missing, feel free to open an issue or pull request on <a href="https://github.com/ech0-de/moodleport" target="_blank" rel="noreferrer noopener">GitHub</a>.
+      </p>
+    </blockquote>
+
+    <h2>Why?</h2>
+    <blockquote>
+    <p>
+      The shift to e-learning is a good trend to improve education, however it has some downsides.
+      In the olden days, you typically have physical binders full of material from your studies, which allow you to look up stuff years after you finished your studies.
+      With modern e-learning the majority of material is accessible in your web browser at all times, well at least until you loose your account once you finished your studies or once your university/school decides to delete the material to save some precious disk space.
+      While the latter seems unlikely since storage has become so cheap, this is something that happened at my university just this year.
+    </p>
+
+    <p>
+      That's where this tool comes to the rescue, it will allow you to create a local copy of a moodle course and download it as a zip file.
+      It will only backup data that you have access to and could theoretically backup on your own with some manual labour.
+    </p>
+    </blockquote>
+
+
+    <h2>Disclaimer</h2>
+    <blockquote>
+      Whether the use of this tool is legal probably depends on your country.
+      In Germany, I'd argue that this can be seen as a <a href="https://de.wikipedia.org/wiki/Privatkopie#Deutschland" target="_blank" rel="noreferer noopener">"Priatkopie"</a>, although I'm not a lawyer.
+      So use at your own risk.
+    </blockquote>
+
+    <h2>Privacy &amp; Security</h2>
+    <blockquote>
+      If you decide to use the tool, the entire backup process will happen on your device.
+      Only the backup script itself will be loaded from an external server, but your login information and downloaded data will remain private.
+      However, the script will automatically interact with your moodle server to download all resources of the course you have access to.
+      Executing an untrusted script in the context of a different site can be a security issue, potentially compromising your account.
+
+      <p>
+        This script will not share any data with an external service, which you can verify for yourself if you're able to comprehend the <a target="_blank" href="view-source:https://moodleport.ech0.de/backup.js">source code</a>.
+      </p>
+    </blockquote>
+
+    <h2>Usage</h2>
+
+    <p>
+    <blockquote>
+      Navigate to the course you want to backup and open your the developer tools of your browser.
+      This can typically be achieved by right clicking somewhere on the page and selecting the "Inspect (Element)" option shown in the context menu.
+    </blockquote>
+
+      <figure>
+        <img src="assets/inspect.png" />
+      </figure>
+
+    <blockquote>
+      Then switch to the "Console" tab.
+    </blockquote>
+
+      <figure>
+        <img src="assets/inspect.png" />
+      </figure>
+
+    <blockquote>
+      Here you have a blinking cursor where you can type and execute code in the context of the course's page.
+    </blockquote>
+
+      <figure>
+        <img src="assets/console.png" />
+      </figure>
+
+    <blockquote>
+      <p>
+        To execute the backup tool type the following statement here:
+      </p>
+
+      <p>
+        <code>
+          import('https://moodleport.ech0.de/backup.js');
+        </code>
+      </p>
+
+      <p>
+        <i>
+          <b>Note:</b> as a security measure, most browsers will prevent you to copy/paste code into this area.
+          While, this behavior can be changed, it is "safer" to actively type this short line into the console instead.
+        </i>
+      </p>
+
+      Double check that you entered the line without spelling errors, before executing it by pressing the "Enter ↲" key.
+      A dialog will open, showing you the progress of the export.
+    </blockquote>
+
+      <figure>
+        <img src="assets/exporting.png" />
+      </figure>
+
+      <blockquote>
+        Once finished, a ZIP-File will be downloaded automatically, which you can then extract to access your local backup of the moodle course.
+        <p>
+          <i>
+            <b>Note:</b> Some browsers may not be able to execute larger courses, due to <a href="https://www.npmjs.com/package/file-saver">internal limitations</a>.
+            Chrome seems to be the best option currently.
+            If you encounter any issues, it might be worth giving Chrome a shot.
+          </i>
+        </p>
+      </blockquote>
+
+      <figure>
+        <img src="assets/done.png" />
+      </figure>
+
+    <h2>Enjoy Your Locally Backed up Moodle Course!</h2>
+
+    <p class="center">
+      <span class="large">😎</span>
+    </p>
+
+    <footer class="center">
+      <div>
+        made with ❤️🧡💛💚💙💜 by <a href="https://ech0.de" target="_blank" rel="noreferrer noopener">ech0</a>
+      </div>
+      <div>
+        code available on <a href="https://github.com/ech0-de/moodleport" target="_blank" rel="noreferrer noopener">GitHub</a> under MIT license
+      </div>
+    </footer>
+    
+  </body>
+</html>
+
