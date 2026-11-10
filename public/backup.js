@@ -289,9 +289,36 @@
                         break;
                     }
 
-                    case 'modtype_assign':
-                        // todo
+                    case 'modtype_assign': {
+                        href = activity.querySelector('.aalink')?.href;
+                        if (!href) {
+                            break;
+                        }
+
+                        await chill();
+                        const res = await fetch(href);
+                        const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
+                        const dom = parser.parseFromString(await res.text(), contentType || 'text/html');
+
+                        // downloads the files linked as .../<area>/<itemid>/<path> into dir, returns a list of them
+                        const download = async (selector, area, dir) => {
+                            const items = [];
+                            for (const url of new Set([...dom.querySelectorAll(selector)].map((a) => a.href))) {
+                                const path = new URL(url).pathname.split(`/${area}/`)[1]
+                                    .split('/').slice(1).map((p) => safeName(decodeURIComponent(p)));
+                                const zipPath = [...dir, ...path];
+                                await chill();
+                                zip.file(zipPath.join('/'), await (await fetch(url)).blob());
+                                items.push(`<li><a href="./${zipPath.map(encodeURIComponent).join('/')}">📝 ${escapeHtml(path.join('/'))}</a></li>`);
+                            }
+                            return items.length ? `<ul>${items.join('')}</ul>` : '';
+                        };
+
+                        // files attached to the description (e.g. the task sheet), only shown on the assignment's page
+                        const dir = safeName(activityName(activity));
+                        contentHtml = await download('#intro a[href*="/mod_assign/introattachment/"]', 'mod_assign/introattachment', [dir]);
                         break;
+                    }
 
                     default:
                         console.warn(`moodleport: unsupported activity type '${type}', saving link only`);
