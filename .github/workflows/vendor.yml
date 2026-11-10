@@ -1,0 +1,23 @@
+name: vendor
+
+# fails when public/vendor/ does not match the versions in package-lock.json,
+# e.g. after a dependency update; fix by running `npm ci && npm run vendor`
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - run: npm ci --ignore-scripts
+      - run: npm audit
+      - run: npm run vendor
+      - run: git status --porcelain -- public/vendor && test -z "$(git status --porcelain -- public/vendor)"
