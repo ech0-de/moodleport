@@ -34,6 +34,11 @@
     const unsupported = new Map();
 
     const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    // turns a name taken from Moodle into a single, harmless path segment,
+    // so that ZIP entries can't escape the extraction directory (zip slip)
+    const safeName = (name) => String(name ?? '')
+        .replace(/[\u0000-\u001f\u007f/\\]/g, '_')
+        .replace(/^\.+$/, '_') || '_';
     // strips the page's own scripts and styles; any script that slips through
     // (e.g. inline event handlers) is blocked by the CSP in index.html
     const cleanHtml = (fragment) => {
@@ -145,7 +150,7 @@
                         const res = await fetch(resource);
                         const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
                         const body = await res.blob();
-                        const filename = decodeURIComponent(new URL(res.url || resource)?.pathname?.split?.('/')?.pop?.());
+                        const filename = safeName(decodeURIComponent(new URL(res.url || resource)?.pathname?.split?.('/')?.pop?.()));
                         zip.file(filename, body);
                         href = `./${encodeURIComponent(filename)}`;
                         break;
@@ -165,7 +170,7 @@
                                 const filename = entry.querySelector('.fp-filename')?.innerText;
                                 const isFolder = entry.querySelector('.icon')?.src?.split?.('/')?.pop?.()?.includes?.('folder');
                                 const fileHref = entry.querySelector('.fp-filename-icon > a[href]')?.href;
-                                path = [...path, filename];
+                                path = [...path, safeName(filename)];
                                 node = { filename, isFolder, link: null, children: [] };
 
                                 if (fileHref) {
@@ -236,8 +241,9 @@
                                 if (track?.url) {
                                     const res = await fetch(track.url, { credentials: 'include' });
                                     const blob = await res.blob();
-                                    href = `./opencast/${fd.get('custom_id')}_${track.url.split('/').pop()}`;
-                                    zip.file(href.slice(2), blob);
+                                    const filename = safeName(`${fd.get('custom_id')}_${track.url.split('/').pop()}`);
+                                    zip.file(`opencast/${filename}`, blob);
+                                    href = `./opencast/${encodeURIComponent(filename)}`;
                                 }
                             }
                         }
