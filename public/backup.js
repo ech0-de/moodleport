@@ -16,7 +16,6 @@
         'modtype_quiz': '✅'
     };
     const externalScripts = [
-        'https://unpkg.com/file-saver/dist/FileSaver.min.js',
         'https://unpkg.com/jszip/dist/jszip.min.js'
     ];
 
@@ -312,7 +311,15 @@
     `.replace(/^ {6}/gm, '').trim().replace('<!-- content -->', () => html));
 
     const blob = await zip.generateAsync({ type: 'blob' });
-    saveAs(blob, `${course.replace(/[^A-Za-z0-9]/gi, '_')}.zip`);
+    const downloadUrl = URL.createObjectURL(blob);
+    const download = document.createElement('a');
+    download.href = downloadUrl;
+    download.download = `${course.replace(/[^A-Za-z0-9]/gi, '_')}.zip`;
+    document.body.appendChild(download);
+    download.click();
+    download.remove();
+    // revoking right away can abort the download in some browsers
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 60 * 1000);
 
     if (unsupported.size === 0) {
         loader.remove();
