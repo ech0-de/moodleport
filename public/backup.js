@@ -166,6 +166,9 @@
         return coursePage;
     };
 
+    // Opencast videos already saved, by URL
+    const opencastVideos = new Map();
+
     // fetches url and parses it as HTML
     const fetchDocument = async (url) => {
         await chill();
@@ -444,38 +447,75 @@
 
                     case 'modtype_lti': {
                         href = activity.querySelector('.aalink')?.href;
-                        const lti = activity.querySelector('.aalink')?.href?.replace?.('lti/view', 'lti/launch');
-                        if (lti) {
+                        if (!href) {
+                            break;
+                        }
+                        // the launch page has a form that logs the user in to the tool and opens it
+                        const form = (await fetchDocument(href.replace('lti/view', 'lti/launch'))).querySelector('#ltiLaunchForm');
+                        const fd = form && new FormData(form);
+                        // Opencast: a single video (custom_id) or a whole series (custom_series)
+                        const episode = fd?.get('custom_id');
+                        const series = fd?.get('custom_series');
+                        if (!episode && !series) {
+                            break;
+                        }
+                        const opencast = new URL(form.getAttribute('action'), href).origin;
+
+                        // log in to Opencast; it redirects to its player, which has no CORS headers, so the
+                        // response can't be read (no-cors), but the request and its session cookie still count
+                        await chill();
+                        await fetch(form.getAttribute('action'), { method: 'POST', mode: 'no-cors', credentials: 'include', body: new URLSearchParams(fd) })
+                            .catch((e) => console.log(e));
+
+                        // the episodes' metadata, page by page; Opencast 14+ returns { total, result: [...] },
+                        // older versions { 'search-results': { total, result } }, with single results not wrapped in an array
+                        const list = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+                        const episodes = [];
+                        for (let offset = 0; ; ) {
+                            const query = episode ? `id=${encodeURIComponent(episode)}` : `sid=${encodeURIComponent(series)}`;
                             await chill();
-                            const res = await fetch(lti);
-                            const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
-                            const body = await res.text();
-                            const dom = parser.parseFromString(body, contentType || 'text/html');
-                            const form = dom.querySelector('#ltiLaunchForm');
-                            const fd = new FormData(form);
+                            const res = await fetch(`${opencast}/search/episode.json?${query}&limit=20&offset=${offset}`, { credentials: 'include' });
+                            const json = await res.json();
+                            const page = json['search-results'] || json;
+                            const results = list(page.result);
+                            episodes.push(...results);
+                            offset += results.length;
+                            if (!results.length || offset >= Number(page.total)) {
+                                break;
+                            }
+                        }
 
-                            if (fd.get('oauth_consumer_key') === 'OpencastMoodleLTI' && fd.get('custom_id')) {
-                                await fetch(form.action, {
-                                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                                    body: new URLSearchParams(fd),
-                                    credentials: 'include',
-                                    method: 'POST',
-                                });
-
-                                await chill();
-                                const res = await fetch(`${new URL(form.action).origin}/search/episode.json?id=${fd.get('custom_id')}`, {
-                                    credentials: 'include'
-                                });
-                                const body = JSON.parse(await res.text());
-                                const track = (body?.['search-results']?.result?.mediapackage?.media?.track || []).find(e => e.mimetype === 'video/mp4');
-                                if (track?.url) {
-                                    const res = await fetch(track.url, { credentials: 'include' });
-                                    const blob = await res.blob();
-                                    const filename = safeName(`${fd.get('custom_id')}_${track.url.split('/').pop()}`);
-                                    zip.file(`opencast/${filename}`, blob);
-                                    href = `./opencast/${encodeURIComponent(filename)}`;
+                        const dir = safeName(activityName(activity));
+                        const videos = [];
+                        for (const result of episodes) {
+                            const mediapackage = result.mediapackage || result;
+                            const title = result.dc?.title?.[0] || mediapackage.title || result.id || mediapackage.id;
+                            // the best MP4 per flavor (e.g. presentation/delivery for the slides, presenter/delivery for the camera)
+                            const best = new Map();
+                            for (const track of list(mediapackage.media?.track).filter((t) => t.mimetype === 'video/mp4' && t.url)) {
+                                const flavor = track.type || track.flavor || '';
+                                const pixels = (t) => (t?.video?.resolution || '0x0').split('x').reduce((a, b) => a * b, 1);
+                                if (pixels(track) >= pixels(best.get(flavor))) {
+                                    best.set(flavor, track);
                                 }
                             }
+                            for (const [flavor, track] of best) {
+                                const name = safeName(`${title}${best.size > 1 ? ` (${flavor.split('/')[0]})` : ''}.mp4`);
+                                // a video that's also in another activity (e.g. a series and a single episode of it) is saved once
+                                if (!opencastVideos.has(track.url)) {
+                                    const path = [dir, name];
+                                    await chill();
+                                    const video = await fetch(track.url, { credentials: 'include' });
+                                    zip.file(path.join('/'), await video.blob());
+                                    opencastVideos.set(track.url, `./${path.map(encodeURIComponent).join('/')}`);
+                                }
+                                const src = opencastVideos.get(track.url);
+                                videos.push(`<figure><video controls preload="metadata" src="${escapeHtml(src)}"></video>`
+                                    + `<figcaption><a href="${escapeHtml(src)}">🎬 ${escapeHtml(name)}</a></figcaption></figure>`);
+                            }
+                        }
+                        if (videos.length) {
+                            contentHtml = videos.join('');
                         }
                         break;
                     }
@@ -579,6 +619,8 @@
             .post.comment { margin-left: 2em; }
             .post.solution { border-left-color: #2a7; }
             .attachments { list-style: none; padding: 0; }
+            figure { margin: 1em 0; }
+            video { max-width: 100%; }
             .submission { border: 2px solid #2a7; border-radius: 4px; padding: 0 1em; margin: 1em 0; }
           </style>
         </head>
