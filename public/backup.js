@@ -97,6 +97,16 @@
     const zip = new JSZip();
     const parser = new DOMParser();
 
+    // the course page as sent by the server, before Moodle's JavaScript changed it
+    let coursePage = null;
+    const getCoursePage = async () => {
+        if (!coursePage) {
+            await chill();
+            coursePage = parser.parseFromString(await (await fetch(location.href)).text(), 'text/html');
+        }
+        return coursePage;
+    };
+
     const course = document.querySelector('.page-header-headings h1')?.innerText || '';
     if (course) {
         html += `<h1>${escapeHtml(course)}</h1>\n`;
@@ -157,51 +167,48 @@
                     }
 
                     case 'modtype_folder': {
+                        // parse the server's HTML, not the live DOM (Moodle <= 4.2 turns it into a YUI tree):
+                        // nested <ul><li>, labelled by .fp-filename-icon (<= 4.2) or <p> (4.3+)
                         const resource = activity.querySelector('.aalink')?.href;
-                        let root = activity.querySelector('.filemanager');
-
-                        // walks the YUI tree view, downloads all files and
-                        // returns the tree as [{ filename, isFolder, link, children }]
-                        const fn = async (dir, path) => {
-                            // does dir have a .ygtvtable?
-                            const entry = dir.querySelector(':scope > .ygtvtable');
-                            let node = null;
-                            if (entry) {
-                                const filename = entry.querySelector('.fp-filename')?.innerText;
-                                const isFolder = entry.querySelector('.icon')?.src?.split?.('/')?.pop?.()?.includes?.('folder');
-                                const fileHref = entry.querySelector('.fp-filename-icon > a[href]')?.href;
-                                path = [...path, safeName(filename)];
-                                node = { filename, isFolder, link: null, children: [] };
-
-                                if (fileHref) {
-                                    await chill();
-                                    const res = await fetch(fileHref);
-                                    const body = await res.blob();
-                                    zip.file(path.join('/'), body);
-                                    node.link = `./${path.map(encodeURIComponent).join('/')}`;
-                                }
-                            }
-
-                            // recurse downwards
-                            const children = (await Promise.all([...dir.querySelectorAll(':scope > .ygtvchildren > .ygtvitem')].map(d => fn(d, path)))).flat();
-                            if (node) {
-                                node.children = children;
-                                return [node];
-                            }
-                            return children;
-                        };
-
-                        if (!root && resource) {
+                        let root = null;
+                        if (resource) {
                             await chill();
                             const res = await fetch(resource);
                             const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
-                            const body = await res.text();
-                            const dom = parser.parseFromString(body, contentType || 'text/html');
+                            const dom = parser.parseFromString(await res.text(), contentType || 'text/html');
                             root = dom.querySelector('#page-content .filemanager');
+                        } else {
+                            root = (await getCoursePage()).getElementById(activity.id)?.querySelector('.filemanager');
                         }
 
+                        // downloads all files below li and returns its tree as { filename, isFolder, link, children }
+                        const walk = async (li, path) => {
+                            const label = li.querySelector(':scope > .fp-filename-icon, :scope > p')?.cloneNode(true);
+                            label?.querySelectorAll('.visually-hidden').forEach((e) => e.remove());
+                            const filename = label?.textContent?.replace(/\s+/g, ' ')?.trim() || '';
+                            const isFolder = /\/f\/folder/.test(label?.querySelector('img.icon')?.src || '');
+                            const fileHref = label?.querySelector('a[href]')?.href;
+                            path = [...path, safeName(filename)];
+                            const node = { filename, isFolder, link: null, children: [] };
+
+                            if (fileHref) {
+                                await chill();
+                                const res = await fetch(fileHref);
+                                const body = await res.blob();
+                                zip.file(path.join('/'), body);
+                                node.link = `./${path.map(encodeURIComponent).join('/')}`;
+                            }
+
+                            node.children = await Promise.all([...li.querySelectorAll(':scope > ul > li')].map((c) => walk(c, path)));
+                            return node;
+                        };
+
                         if (root) {
-                            const tree = (await Promise.all([...root.children].map(d => fn(d, [])))).flat();
+                            // the top-level entry is the folder itself (unnamed on the folder's own page),
+                            // so its contents are stored in a directory named after the activity
+                            const name = activity.querySelector('[data-activityname]')?.dataset?.activityname;
+                            const top = [...root.querySelectorAll(':scope > ul > li > ul > li')];
+                            const tree = await Promise.all(top.map((li) => walk(li, [safeName(name)])));
                             const label = (n) => `${n.isFolder ? '📂' : '📝'} ${n.filename}`;
                             const renderHtml = (nodes) => nodes.length ? `<ul>${nodes.map((n) =>
                                 `<li>${n.link ? `<a href="${escapeHtml(n.link)}">${escapeHtml(label(n))}</a>` : escapeHtml(label(n))}${renderHtml(n.children)}</li>`
