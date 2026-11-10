@@ -2,6 +2,7 @@
     const chill = () => new Promise(resolve => setTimeout(resolve, Math.round(Math.random() * 1500))); 
     const icon = {
         'modtype_forum': '💬',
+        'modtype_moodleoverflow': '💬',
         'modtype_page': '📄',
         'modtype_feedback': '📣',
         'modtype_assign': '📤',
@@ -119,6 +120,82 @@
         return coursePage;
     };
 
+    // fetches url and parses it as HTML
+    const fetchDocument = async (url) => {
+        await chill();
+        const res = await fetch(url);
+        const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
+        return parser.parseFromString(await res.text(), contentType || 'text/html');
+    };
+
+    // URLs of all discussions linked as .../<script>?d=<id> from a forum's (paginated) discussion list;
+    // relative links are resolved against the page they're on, not the course page (which link.href would use)
+    const discussionUrls = async (viewUrl, script) => {
+        const urls = new Set();
+        const pages = [viewUrl];
+        for (let i = 0; i < pages.length; i++) {
+            const doc = await fetchDocument(pages[i]);
+            for (const link of doc.querySelectorAll(`a[href*="${script.split('/').pop()}?d="]`)) {
+                const url = new URL(link.getAttribute('href'), pages[i]);
+                if (!url.pathname.endsWith(`/${script}`)) {
+                    continue;
+                }
+                if (!url.searchParams.has('parent')) {
+                    url.hash = '';
+                    urls.add(url.href);
+                }
+            }
+            for (const link of doc.querySelectorAll('.pagination a[href]')) {
+                const page = new URL(link.getAttribute('href'), pages[i]);
+                page.hash = '';
+                if (page.pathname === new URL(viewUrl).pathname && !pages.includes(page.href)) {
+                    pages.push(page.href);
+                }
+            }
+        }
+        return [...urls];
+    };
+
+    // downloads the linked files into dir (numbering duplicate names), returns a list of them
+    const saveAttachments = async (links, dir) => {
+        const items = [];
+        for (const url of new Set(links.map((a) => a.href))) {
+            const name = safeName(decodeURIComponent(new URL(url).pathname.split('/').pop()));
+            let path = [...dir, name];
+            for (let n = 2; zip.file(path.join('/')); n++) {
+                path = [...dir, name.replace(/(\.[^.]*)?$/, ` (${n})$1`)];
+            }
+            await chill();
+            zip.file(path.join('/'), await (await fetch(url)).blob());
+            items.push(`<li><a href="./${path.map(encodeURIComponent).join('/')}">📎 ${escapeHtml(path.at(-1))}</a></li>`);
+        }
+        return items.length ? `<ul class="attachments">${items.join('')}</ul>` : '';
+    };
+
+    const postHtml = (classes, meta, content, attachments, replies = '') =>
+        `<div class="${['post', classes].filter(Boolean).join(' ')}"><p class="meta">${meta.filter(Boolean).map(escapeHtml).join(' · ')}</p>`
+        + `${content}${attachments}${replies}</div>`;
+
+    // a forum post (article[data-region="post"]) with its nested replies
+    const forumPost = async (article, dir) => {
+        const own = (selector) => [...article.querySelectorAll(selector)].filter((e) => e.closest('[data-region="post"]') === article);
+        const subject = own('[data-region-content="forum-post-core-subject"]')[0]?.textContent?.trim();
+        const author = own('header a[href*="/user/view.php"]')[0]?.textContent?.trim();
+        const time = own('header time')[0]?.textContent?.trim();
+        const attachments = await saveAttachments(own('a[href*="/mod_forum/attachment/"]'), dir);
+        let replies = '';
+        for (const reply of article.querySelectorAll('[data-region="post"]')) {
+            if (reply.parentElement.closest('[data-region="post"]') === article) {
+                replies += await forumPost(reply, dir);
+            }
+        }
+        return postHtml('', [subject, author, time], own('.post-content-container')[0]?.innerHTML || '', attachments, replies);
+    };
+
+    // a discussion page's top-level forum posts, which contain their replies (or all posts, in flat display mode)
+    const forumPosts = (doc) => [...doc.querySelectorAll('[data-region="post"]')]
+        .filter((post) => !post.parentElement.closest('[data-region="post"]'));
+
     const course = document.querySelector('.page-header-headings h1')?.innerText || '';
     if (course) {
         html += `<h1>${escapeHtml(course)}</h1>\n`;
@@ -173,13 +250,75 @@
                     case 'modtype_url':
                     case 'modtype_zoom':
                     case 'modtype_quiz':
-                    case 'modtype_forum':
                     case 'modtype_feedback':
                     case 'modtype_organizer':
                     case 'modtype_choicegroup':
                     case 'modtype_ratingallocate':
                         href = activity.querySelector('.aalink')?.href;
                         break;
+
+                    case 'modtype_forum': {
+                        href = activity.querySelector('.aalink')?.href;
+                        if (!href) {
+                            break;
+                        }
+                        const dir = safeName(activityName(activity));
+                        const urls = await discussionUrls(href, 'mod/forum/discuss.php');
+                        // a "single simple discussion" forum shows its posts on the forum's own page
+                        for (const url of urls.length ? urls : [href]) {
+                            const posts = forumPosts(await fetchDocument(url));
+                            if (!posts.length) {
+                                continue;
+                            }
+                            const title = posts[0].querySelector('[data-region-content="forum-post-core-subject"]')?.textContent?.trim() || '';
+                            let discussion = '';
+                            for (const post of posts) {
+                                discussion += await forumPost(post, [dir, safeName(title)]);
+                            }
+                            contentHtml = (contentHtml || '')
+                                + `<div class="discussion"><h${level + 1}>${escapeHtml(title)}</h${level + 1}>${discussion}</div>`;
+                        }
+                        break;
+                    }
+
+                    case 'modtype_moodleoverflow': {
+                        href = activity.querySelector('.aalink')?.href;
+                        if (!href) {
+                            break;
+                        }
+                        const dir = safeName(activityName(activity));
+                        for (const url of await discussionUrls(href, 'mod/moodleoverflow/discussion.php')) {
+                            const doc = await fetchDocument(url);
+                            const title = doc.querySelector('.discussionname')?.textContent?.trim() || '';
+                            let discussion = '';
+                            // the question, then the answers (accepted ones first), each followed by its comments
+                            for (const post of doc.querySelectorAll('.moodleoverflowpost')) {
+                                const kind = post.matches('.starter') ? 'question' : post.matches('.moodleoverflowcomment') ? 'comment' : 'answer';
+                                const text = post.querySelector('.post-text')?.cloneNode(true);
+                                text?.querySelector('a.anchor')?.remove();
+                                const info = post.querySelector('.post-info .leftbox');
+                                // .user-details, since the avatar is a profile link too (in older versions)
+                                const author = (info?.querySelector('.user-details a[href*="/user/view.php"]')
+                                    || info?.querySelector('a[href*="/user/view.php"]'))?.textContent?.trim();
+                                // comments only show a short "author - time"
+                                const time = post.querySelector('.user-action-time')?.textContent?.trim()
+                                    || info?.querySelector('.text-muted')?.textContent?.split(' - ')?.pop()?.trim();
+                                const votes = kind === 'answer' ? post.querySelector('.votecount')?.textContent?.trim() : null;
+                                const attachments = await saveAttachments(
+                                    [...post.querySelectorAll('.attachments a[href*="/mod_moodleoverflow/attachment/"]')], [dir, safeName(title)]);
+                                discussion += postHtml(`${kind}${post.matches('.markedsolution') ? ' solution' : ''}`, [
+                                    { question: '❓ Question', answer: '💡 Answer', comment: '💬 Comment' }[kind],
+                                    author, time,
+                                    votes && `${votes} votes`,
+                                    post.matches('.markedsolution') && '✅ marked as solution',
+                                    post.matches('.markedhelpful') && '👍 marked as helpful',
+                                ], text?.innerHTML || '', attachments);
+                            }
+                            contentHtml = (contentHtml || '')
+                                + `<div class="discussion"><h${level + 1}>${escapeHtml(title)}</h${level + 1}>${discussion}</div>`;
+                        }
+                        break;
+                    }
 
                     case 'modtype_page': {
                         await chill();
@@ -389,6 +528,11 @@
             img, video, iframe { max-width: 100%; height: auto; }
             table { border-collapse: collapse; }
             td, th { border: 1px solid #ccc; padding: .25em .5em; }
+            .post { border-left: 3px solid #ccc; padding-left: 1em; margin: .75em 0; }
+            .post .meta { color: #555; font-size: .9em; margin: 0; }
+            .post.comment { margin-left: 2em; }
+            .post.solution { border-left-color: #2a7; }
+            .attachments { list-style: none; padding: 0; }
             .submission { border: 2px solid #2a7; border-radius: 4px; padding: 0 1em; margin: 1em 0; }
           </style>
         </head>
