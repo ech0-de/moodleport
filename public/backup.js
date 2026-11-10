@@ -16,8 +16,6 @@
         'modtype_quiz': '✅'
     };
     const externalScripts = [
-        'https://unpkg.com/turndown/dist/turndown.js',
-        'https://unpkg.com/turndown-plugin-gfm/dist/turndown-plugin-gfm.js',
         'https://unpkg.com/file-saver/dist/FileSaver.min.js',
         'https://unpkg.com/jszip/dist/jszip.min.js'
     ];
@@ -31,8 +29,16 @@
         document.body.appendChild(st);
     })));
 
-    let output = '';
+    let html = '';
     const unsupported = new Map();
+
+    const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const cleanHtml = (fragment) => {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = fragment;
+        tpl.content.querySelectorAll('script, style, noscript, template').forEach((e) => e.remove());
+        return tpl.innerHTML;
+    };
 
     const loader = document.createElement('div');
     loader.style.textAlign = 'center';
@@ -83,12 +89,9 @@
     const zip = new JSZip();
     const parser = new DOMParser();
 
-    const td = new TurndownService();
-    td.use(turndownPluginGfm.gfm);
-
     const course = document.querySelector('.page-header-headings h1')?.innerText || '';
     if (course) {
-        output += `# ${course}\n\n`;
+        html += `<h1>${escapeHtml(course)}</h1>\n`;
     }
 
     let current = 0;
@@ -98,18 +101,18 @@
     for (const section of document.querySelectorAll('.course-section')) {
         const title = section.querySelector('.sectionname')?.innerText || '';
         if (title) {
-            output += `## ${title}\n\n`;
+            html += `<h2>${escapeHtml(title)}</h2>\n`;
         }
 
         for (const activity of section.querySelectorAll('.activity')) {
             try {
                 const type = [...activity.classList].find(e => String(e).startsWith('modtype_'));
-                let content = null;
+                let contentHtml = null;
                 let href = null;
 
                 switch (type) {
                     case 'modtype_label':
-                        content = td.turndown(activity.innerHTML);
+                        contentHtml = activity.innerHTML;
                         break;
 
                     case 'modtype_url':
@@ -129,7 +132,7 @@
                         const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
                         const body = await res.text();
                         const dom = parser.parseFromString(body, contentType || 'text/html');
-                        content = td.turndown(dom.querySelector('#page-content').innerHTML);
+                        contentHtml = dom.querySelector('#page-content').innerHTML;
                         break;
                     }
 
@@ -147,44 +150,55 @@
 
                     case 'modtype_folder': {
                         const resource = activity.querySelector('.aalink')?.href;
-                        const root = activity.querySelector('.filemanager');
+                        let root = activity.querySelector('.filemanager');
 
-                        const fn = async (dir, path=[]) => {
+                        // walks the YUI tree view, downloads all files and
+                        // returns the tree as [{ filename, isFolder, link, children }]
+                        const fn = async (dir, path) => {
                             // does dir have a .ygtvtable?
                             const entry = dir.querySelector(':scope > .ygtvtable');
+                            let node = null;
                             if (entry) {
                                 const filename = entry.querySelector('.fp-filename')?.innerText;
                                 const isFolder = entry.querySelector('.icon')?.src?.split?.('/')?.pop?.()?.includes?.('folder');
-                                const href = entry.querySelector('.fp-filename-icon > a[href]')?.href;
-                                path.push(filename);
+                                const fileHref = entry.querySelector('.fp-filename-icon > a[href]')?.href;
+                                path = [...path, filename];
+                                node = { filename, isFolder, link: null, children: [] };
 
-                                if (href) {
+                                if (fileHref) {
                                     await chill();
-                                    const res = await fetch(href);
+                                    const res = await fetch(fileHref);
                                     const body = await res.blob();
                                     zip.file(path.join('/'), body);
-                                    content += `${Array(path.length).fill('  ').join('')} * [${isFolder ? '📂' : '📝'} ${filename}](./${path.map(encodeURIComponent).join('/')})\n`;
-                                } else {
-                                    content += `${Array(path.length).fill('  ').join('')} * ${isFolder ? '📂' : '📝'} ${filename}\n`;
+                                    node.link = `./${path.map(encodeURIComponent).join('/')}`;
                                 }
                             }
-                            
+
                             // recurse downwards
-                            await Promise.all([...dir.querySelectorAll(':scope > .ygtvchildren > .ygtvitem')].map(d => fn(d, [...path])));
+                            const children = (await Promise.all([...dir.querySelectorAll(':scope > .ygtvchildren > .ygtvitem')].map(d => fn(d, path)))).flat();
+                            if (node) {
+                                node.children = children;
+                                return [node];
+                            }
+                            return children;
                         };
 
-                        if (root) {
-                            await Promise.all([...root.children].map(d => fn(d, [])));
-                        } else if (resource) {
+                        if (!root && resource) {
                             await chill();
                             const res = await fetch(resource);
                             const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
                             const body = await res.text();
                             const dom = parser.parseFromString(body, contentType || 'text/html');
-                            const root = dom.querySelector('#page-content .filemanager');
-                            if (root) {
-                                await Promise.all([...root.children].map(d => fn(d, [])));
-                            }
+                            root = dom.querySelector('#page-content .filemanager');
+                        }
+
+                        if (root) {
+                            const tree = (await Promise.all([...root.children].map(d => fn(d, [])))).flat();
+                            const label = (n) => `${n.isFolder ? '📂' : '📝'} ${n.filename}`;
+                            const renderHtml = (nodes) => nodes.length ? `<ul>${nodes.map((n) =>
+                                `<li>${n.link ? `<a href="${escapeHtml(n.link)}">${escapeHtml(label(n))}</a>` : escapeHtml(label(n))}${renderHtml(n.children)}</li>`
+                            ).join('')}</ul>` : '';
+                            contentHtml = renderHtml(tree);
                         }
 
                         break;
@@ -240,22 +254,23 @@
 
                 if (type !== 'modtype_label') {
                     const name = activity.querySelector('[data-activityname]')?.dataset?.activityname;
+                    const label = `${icon[type] ?? '🔗'} ${name}`;
                     if (name && href) {
-                        output += `### [${icon[type] ?? '🔗'} ${name}](${href})\n\n`;
+                        html += `<h3><a href="${escapeHtml(href)}">${escapeHtml(label)}</a></h3>\n`;
                     } else if (name) {
-                        output += `### ${icon[type] ?? '🔗'} ${name}\n\n`;
+                        html += `<h3>${escapeHtml(label)}</h3>\n`;
                     }
                 }
 
                 if (type !== 'modtype_folder') {
                     const description = activity.querySelector('.description')?.innerHTML;
                     if (description) {
-                        output += td.turndown(`<blockquote>${description}</blockquote>`) + '\n\n';
+                        html += `<blockquote>${cleanHtml(description)}</blockquote>\n`;
                     }
                 }
 
-                if (content) {
-                     output += content + '\n\n'
+                if (contentHtml) {
+                    html += cleanHtml(contentHtml) + '\n';
                 }
             } catch (e) {
                 console.log(e);
@@ -269,7 +284,29 @@
         updateProgress(current, total);
     }
 
-    zip.file("README.md", output);
+    // dedent the template before inserting the content, so that indentation
+    // inside the course's own markup (e.g. in <pre> blocks) is preserved
+    zip.file('index.html', `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${escapeHtml(course || 'Moodle course backup')}</title>
+          <style>
+            body { font-family: system-ui, sans-serif; line-height: 1.5; max-width: 50em; margin: 0 auto; padding: 1em; color: #222; }
+            h2 { border-bottom: 1px solid #ccc; margin-top: 2em; }
+            blockquote { margin-inline: 0; padding-left: 1em; border-left: 3px solid #ccc; color: #555; }
+            img, video, iframe { max-width: 100%; height: auto; }
+            table { border-collapse: collapse; }
+            td, th { border: 1px solid #ccc; padding: .25em .5em; }
+          </style>
+        </head>
+        <body>
+          <!-- content -->
+        </body>
+      </html>
+    `.replace(/^ {6}/gm, '').trim().replace('<!-- content -->', () => html));
 
     const blob = await zip.generateAsync({ type: 'blob' });
     saveAs(blob, `${course.replace(/[^A-Za-z0-9]/gi, '_')}.zip`);
