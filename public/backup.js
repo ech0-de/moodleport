@@ -8,6 +8,7 @@
         'modtype_organizer': '📅',
         'modtype_resource': '📝',
         'modtype_choicegroup': '👥',
+        'modtype_ratingallocate': '⚖️',
         'modtype_folder': '📂',
         'modtype_zoom': '☎️',
         'modtype_url': '🌍',
@@ -31,6 +32,7 @@
     })));
 
     let output = '';
+    const unsupported = new Map();
 
     const loader = document.createElement('div');
     loader.style.textAlign = 'center';
@@ -117,6 +119,7 @@
                     case 'modtype_feedback':
                     case 'modtype_organizer':
                     case 'modtype_choicegroup':
+                    case 'modtype_ratingallocate':
                         href = activity.querySelector('.aalink')?.href;
                         break;
 
@@ -229,16 +232,18 @@
                         break;
 
                     default:
-                        alert(`Encountered unsupported activity type '${type}'`);
+                        console.warn(`moodleport: unsupported activity type '${type}', saving link only`);
+                        unsupported.set(type, (unsupported.get(type) || 0) + 1);
+                        href = activity.querySelector('.aalink')?.href;
                         break;
                 }
 
                 if (type !== 'modtype_label') {
                     const name = activity.querySelector('[data-activityname]')?.dataset?.activityname;
                     if (name && href) {
-                        output += `### [${icon[type]} ${name}](${href})\n\n`;
+                        output += `### [${icon[type] ?? '🔗'} ${name}](${href})\n\n`;
                     } else if (name) {
-                        output += `### ${icon[type]} ${name}\n\n`;
+                        output += `### ${icon[type] ?? '🔗'} ${name}\n\n`;
                     }
                 }
 
@@ -269,5 +274,39 @@
     const blob = await zip.generateAsync({ type: 'blob' });
     saveAs(blob, `${course.replace(/[^A-Za-z0-9]/gi, '_')}.zip`);
 
-    loader.remove();
+    if (unsupported.size === 0) {
+        loader.remove();
+        return;
+    }
+
+    content.style.maxHeight = '80vh';
+    content.style.maxWidth = '400px';
+    content.style.overflowY = 'auto';
+    content.style.textAlign = 'left';
+    content.replaceChildren();
+
+    const heading = document.createElement('h2');
+    heading.innerText = '⚠️ Export finished with warnings';
+    content.appendChild(heading);
+
+    const explanation = document.createElement('p');
+    explanation.innerText = 'The following activity types are not supported yet. Only a link to them was saved in the backup:';
+    content.appendChild(explanation);
+
+    const list = document.createElement('ul');
+    for (const [type, count] of unsupported) {
+        const item = document.createElement('li');
+        item.innerText = `${type.replace(/^modtype_/, '')} (${count}×)`;
+        list.appendChild(item);
+    }
+    content.appendChild(list);
+
+    const issue = document.createElement('p');
+    issue.innerHTML = 'Feel free to report them on <a href="https://github.com/ech0-de/moodleport/issues" target="_blank" rel="noreferrer noopener">GitHub</a>.';
+    content.appendChild(issue);
+
+    const close = document.createElement('button');
+    close.innerText = 'Close';
+    close.addEventListener('click', () => loader.remove());
+    content.appendChild(close);
 })().then(console.log).catch(console.log);
