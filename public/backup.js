@@ -46,12 +46,58 @@
     const safeName = (name) => String(name ?? '')
         .replace(/[\u0000-\u001f\u007f/\\]/g, '_')
         .replace(/^\.+$/, '_') || '_';
-    // strips the page's own scripts and styles; any script that slips through
-    // (e.g. inline event handlers) is blocked by the CSP in index.html
-    const cleanHtml = (fragment) => {
+    // local copies (in media/) of files embedded in or linked from Moodle's HTML, by URL, so each is downloaded once
+    const media = new Map();
+    const saveMedia = (url) => {
+        if (!media.has(url)) {
+            media.set(url, (async () => {
+                const name = safeName(decodeURIComponent(new URL(url).pathname.split('/').pop()));
+                let path = ['media', name];
+                for (let n = 2; zip.file(path.join('/')); n++) {
+                    path = ['media', name.replace(/(\.[^.]*)?$/, ` (${n})$1`)];
+                }
+                await chill();
+                const res = await fetch(url);
+                if (!res.ok) {
+                    return null;
+                }
+                zip.file(path.join('/'), await res.blob());
+                return `./${path.map(encodeURIComponent).join('/')}`;
+            })().catch((e) => {
+                console.log(e);
+                return null;
+            }));
+        }
+        return media.get(url);
+    };
+
+    // strips the page's own scripts and styles (any script that slips through, e.g. an inline event handler,
+    // is blocked by the CSP in index.html) and replaces images, video, audio and linked files from the
+    // Moodle site with local copies; content from other sites stays linked, since CORS usually prevents fetching it
+    const cleanHtml = async (fragment) => {
         const tpl = document.createElement('template');
         tpl.innerHTML = fragment;
         tpl.content.querySelectorAll('script, style, noscript, template').forEach((e) => e.remove());
+        for (const el of tpl.content.querySelectorAll('img, video, audio, source, track, a[href]')) {
+            for (const attr of ['src', 'poster', 'href']) {
+                let url;
+                try {
+                    url = el.hasAttribute(attr) && new URL(el.getAttribute(attr), location.href);
+                } catch {
+                    continue;
+                }
+                // links only to files, not to Moodle's pages
+                if (!url || url.origin !== location.origin || (attr === 'href' && !url.pathname.includes('/pluginfile.php/'))) {
+                    continue;
+                }
+                const path = await saveMedia(url.href);
+                if (path) {
+                    el.setAttribute(attr, path);
+                    // browsers prefer srcset (still pointing to Moodle) over src
+                    el.removeAttribute('srcset');
+                }
+            }
+        }
         return tpl.innerHTML;
     };
 
@@ -495,12 +541,12 @@
                     // .activity-description since Moodle 4.3, .description before
                     const description = (activity.querySelector('.activity-description') || activity.querySelector('.description .description-inner') || activity.querySelector('.description'))?.innerHTML;
                     if (description && !isEmptyHtml(description)) {
-                        html += `<blockquote>${cleanHtml(description)}</blockquote>\n`;
+                        html += `<blockquote>${await cleanHtml(description)}</blockquote>\n`;
                     }
                 }
 
                 if (contentHtml) {
-                    html += cleanHtml(contentHtml) + '\n';
+                    html += await cleanHtml(contentHtml) + '\n';
                 }
             } catch (e) {
                 console.log(e);
