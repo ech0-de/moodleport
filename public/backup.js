@@ -97,6 +97,12 @@
     const zip = new JSZip();
     const parser = new DOMParser();
 
+    // data-activityname holds Moodle's formatted name, i.e. HTML like "A &amp; B"
+    const activityName = (activity) => {
+        const name = activity.querySelector('[data-activityname]')?.dataset?.activityname;
+        return name === undefined ? undefined : parser.parseFromString(name, 'text/html').body.textContent;
+    };
+
     // the course page as sent by the server, before Moodle's JavaScript changed it
     let coursePage = null;
     const getCoursePage = async () => {
@@ -210,7 +216,7 @@
                         if (root) {
                             // the top-level entry is the folder itself (unnamed on the folder's own page),
                             // so its contents are stored in a directory named after the activity
-                            const name = activity.querySelector('[data-activityname]')?.dataset?.activityname;
+                            const name = activityName(activity);
                             const top = [...root.querySelectorAll(':scope > ul > li > ul > li')];
                             const tree = await Promise.all(top.map((li) => walk(li, [safeName(name)])));
                             const label = (n) => `${n.isFolder ? '📂' : '📝'} ${n.filename}`;
@@ -273,7 +279,7 @@
                 }
 
                 if (type !== 'modtype_label') {
-                    const name = activity.querySelector('[data-activityname]')?.dataset?.activityname;
+                    const name = activityName(activity);
                     const label = `${icon[type] ?? '🔗'} ${name}`;
                     if (name && href) {
                         html += `<h3><a href="${escapeHtml(href)}">${escapeHtml(label)}</a></h3>\n`;
