@@ -280,7 +280,8 @@
                 }
 
                 if (type !== 'modtype_folder') {
-                    const description = activity.querySelector('.description')?.innerHTML;
+                    // .activity-description since Moodle 4.3, .description before
+                    const description = (activity.querySelector('.activity-description') || activity.querySelector('.description .description-inner') || activity.querySelector('.description'))?.innerHTML;
                     if (description) {
                         html += `<blockquote>${cleanHtml(description)}</blockquote>\n`;
                     }
