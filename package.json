@@ -1,0 +1,11 @@
+{
+  "name": "moodleport",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs"
+  },
+  "dependencies": {
+    "jszip": "3.10.2"
+  }
+}
