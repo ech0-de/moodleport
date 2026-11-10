@@ -317,6 +317,14 @@
                         // files attached to the description (e.g. the task sheet), only shown on the assignment's page
                         const dir = safeName(activityName(activity));
                         contentHtml = await download('#intro a[href*="/mod_assign/introattachment/"]', 'mod_assign/introattachment', [dir]);
+
+                        // the user's own submission
+                        const submission = await download('.submissionstatustable a[href*="/assignsubmission_file/submission_files/"]',
+                            'assignsubmission_file/submission_files', [dir, 'My submission']);
+                        if (submission) {
+                            const status = dom.querySelector('.submissionstatustable td[class*="submissionstatus"]')?.textContent?.trim();
+                            contentHtml += `<div class="submission"><p>📤 <strong>My submission</strong>${status ? ` (${escapeHtml(status)})` : ''}</p>${submission}</div>`;
+                        }
                         break;
                     }
 
@@ -375,6 +383,7 @@
             img, video, iframe { max-width: 100%; height: auto; }
             table { border-collapse: collapse; }
             td, th { border: 1px solid #ccc; padding: .25em .5em; }
+            .submission { border: 2px solid #2a7; border-radius: 4px; padding: 0 1em; margin: 1em 0; }
           </style>
         </head>
         <body>
