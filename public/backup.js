@@ -34,6 +34,12 @@
     const unsupported = new Map();
 
     const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    // true for markup without any text or media, e.g. Moodle 4.1's empty description elements
+    const isEmptyHtml = (fragment) => {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = fragment;
+        return !tpl.content.textContent.trim() && !tpl.content.querySelector('img, video, audio, iframe, object, embed');
+    };
     // turns a name taken from Moodle into a single, harmless path segment,
     // so that ZIP entries can't escape the extraction directory (zip slip)
     const safeName = (name) => String(name ?? '')
@@ -349,7 +355,7 @@
                 if (type !== 'modtype_folder' && type !== 'modtype_label') {
                     // .activity-description since Moodle 4.3, .description before
                     const description = (activity.querySelector('.activity-description') || activity.querySelector('.description .description-inner') || activity.querySelector('.description'))?.innerHTML;
-                    if (description) {
+                    if (description && !isEmptyHtml(description)) {
                         html += `<blockquote>${cleanHtml(description)}</blockquote>\n`;
                     }
                 }
