@@ -33,6 +33,8 @@
     const unsupported = new Map();
 
     const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    // strips the page's own scripts and styles; any script that slips through
+    // (e.g. inline event handlers) is blocked by the CSP in index.html
     const cleanHtml = (fragment) => {
         const tpl = document.createElement('template');
         tpl.innerHTML = fragment;
@@ -291,6 +293,7 @@
       <html>
         <head>
           <meta charset="UTF-8">
+          <meta http-equiv="Content-Security-Policy" content="script-src 'none'; object-src 'none'">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>${escapeHtml(course || 'Moodle course backup')}</title>
           <style>
