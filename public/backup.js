@@ -150,7 +150,8 @@
                         const contentType = res.headers.get('Content-Type')?.replace?.(/;.*$/, '');
                         const body = await res.text();
                         const dom = parser.parseFromString(body, contentType || 'text/html');
-                        contentHtml = dom.querySelector('#page-content').innerHTML;
+                        // just the page's text, without the surrounding layout (header, "Last modified", ...)
+                        contentHtml = (dom.querySelector('#page-content [role=main] > .generalbox') || dom.querySelector('#page-content')).innerHTML;
                         break;
                     }
 
