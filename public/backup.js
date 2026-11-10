@@ -129,9 +129,12 @@
                 let href = null;
 
                 switch (type) {
-                    case 'modtype_label':
-                        contentHtml = activity.innerHTML;
+                    case 'modtype_label': {
+                        // just the label's text, without Moodle's activity markup (e.g. the bulk edit checkbox)
+                        const text = activity.querySelector('.description-inner') || activity.querySelector('.activity-altcontent');
+                        contentHtml = (text || activity).innerHTML;
                         break;
+                    }
 
                     case 'modtype_url':
                     case 'modtype_zoom':
@@ -279,7 +282,8 @@
                     }
                 }
 
-                if (type !== 'modtype_folder') {
+                // a label's text is its description, so it's already in contentHtml
+                if (type !== 'modtype_folder' && type !== 'modtype_label') {
                     // .activity-description since Moodle 4.3, .description before
                     const description = (activity.querySelector('.activity-description') || activity.querySelector('.description .description-inner') || activity.querySelector('.description'))?.innerHTML;
                     if (description) {
