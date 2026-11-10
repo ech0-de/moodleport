@@ -118,17 +118,39 @@
         html += `<h1>${escapeHtml(course)}</h1>\n`;
     }
 
-    let current = 0;
-    const total = document.querySelectorAll('.course-section').length + document.querySelectorAll('.activity').length;
-    updateProgress(current, total);
+    // a section's own activities, without those of a subsection (Moodle 4.5+), which is
+    // an activity containing its own .course-section
+    const activitiesOf = (section) => [...section.querySelectorAll('.activity')]
+        .filter((a) => a.parentElement.closest('.course-section') === section);
 
+    // sections and activities in order, with their heading level
+    const entries = [];
     for (const section of document.querySelectorAll('.course-section')) {
-        const title = section.querySelector('.sectionname')?.innerText || '';
-        if (title) {
-            html += `<h2>${escapeHtml(title)}</h2>\n`;
+        if (section.parentElement.closest('.activity')) {
+            continue; // subsection, added below
         }
+        entries.push({ section, level: 2 });
+        for (const activity of activitiesOf(section)) {
+            const subsection = activity.querySelector('.course-section');
+            if (subsection) {
+                entries.push({ section: subsection, level: 3 });
+                entries.push(...activitiesOf(subsection).map((a) => ({ activity: a, level: 4 })));
+            } else {
+                entries.push({ activity, level: 3 });
+            }
+        }
+    }
 
-        for (const activity of section.querySelectorAll('.activity')) {
+    let current = 0;
+    updateProgress(current, entries.length);
+
+    for (const { section, activity, level } of entries) {
+        if (section) {
+            const title = section.querySelector('.sectionname')?.innerText || '';
+            if (title) {
+                html += `<h${level}>${escapeHtml(title)}</h${level}>\n`;
+            }
+        } else {
             try {
                 const type = [...activity.classList].find(e => String(e).startsWith('modtype_'));
                 let contentHtml = null;
@@ -282,9 +304,9 @@
                     const name = activityName(activity);
                     const label = `${icon[type] ?? '🔗'} ${name}`;
                     if (name && href) {
-                        html += `<h3><a href="${escapeHtml(href)}">${escapeHtml(label)}</a></h3>\n`;
+                        html += `<h${level}><a href="${escapeHtml(href)}">${escapeHtml(label)}</a></h${level}>\n`;
                     } else if (name) {
-                        html += `<h3>${escapeHtml(label)}</h3>\n`;
+                        html += `<h${level}>${escapeHtml(label)}</h${level}>\n`;
                     }
                 }
 
@@ -303,13 +325,10 @@
             } catch (e) {
                 console.log(e);
             }
-
-            current += 1;
-            updateProgress(current, total);
         }
 
         current += 1;
-        updateProgress(current, total);
+        updateProgress(current, entries.length);
     }
 
     // dedent the template before inserting the content, so that indentation
