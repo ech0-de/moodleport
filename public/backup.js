@@ -15,16 +15,18 @@
         'modtype_lti': '⛓️',
         'modtype_quiz': '✅'
     };
+    // vendored next to this script, see scripts/vendor.mjs
     const externalScripts = [
-        'https://unpkg.com/jszip/dist/jszip.min.js'
-    ];
+        'vendor/jszip/jszip.min.js'
+    ].map((path) => new URL(path, import.meta.url).href);
 
     window.define = null;
     window.require = null;
-    const scriptsReady = Promise.all(externalScripts.map((script) => new Promise((resolve) => {
+    const scriptsReady = Promise.all(externalScripts.map((script) => new Promise((resolve, reject) => {
         const st = document.createElement('script');
         st.src = script;
         st.addEventListener('load', resolve);
+        st.addEventListener('error', () => reject(new Error(`moodleport: failed to load ${script}`)));
         document.body.appendChild(st);
     })));
 
